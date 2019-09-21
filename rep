@@ -1,0 +1,156 @@
+Creation Partiotion:
+	4.2Gb 	"/"		4.501Gb
+	1Gb		"swap"
+	reste	"/home"
+
+fdisk -l
+
+Domaine : 42.fr
+
+qpt install -y sudo vim 
+
+1)	Vous devez créer un utilisateur non root pour vous connecter et travailler.
+
+adduser work 
+
+2)	Utilisez sudo pour pouvoir, depuis cet utilisateur, effectuer les operations demandant des droits speciaux.
+
+adduser	work sudo
+
+3)	Nous ne voulons pas que vous utilisiez le service DHCP de votre machine.
+A vous donc de la configurer afin qu’elle ait une IP fixe et un Netmask en /30. 
+
+Donc modifier /etc/network/interfaces 
+
+iface enp0s3 inet static
+	address 10.11.200.157   <10.11.X.X>
+	netmask 255.255.255.252
+	gateway 10.11.254.254
+
+4)	Vous devez changer le port par defaut du service SSH par celui de votre choix.
+L’accès SSH DOIT se faire avec des publickeys. L’utilisateur root ne doit pas
+pouvoir se connecter en SSH.
+
+SSH modifier /etc/ssh/sshd_config
+
+Port 5456
+PermitRootLogin no
+PubkeyAuthentification yes
+PasswordAuthentification no
+
+## SI SSH need passPhrase each time: 
+	ssh-add
+	eval $(ssh-agent)
+	ssh-add
+
+5)	Vous devez mettre en place des règles de pare-feu (firewall)sur le
+serveur avec uniquement les services utilisés accessible en dehors de la VM.
+
+sudo apt install iptables-persistent
+
+Firewall modifier /etc/network/if-pre-up.d/
+
+:#Reset ALL
+iptables -F
+iptables -X
+iptables -t nat -F
+iptables -t nat -X
+iptables -t mangle -F
+iptables -t mangle -X
+
+#Drop all
+iptables -P INPUT DROP
+iptables -P OUTPUT DROP
+iptables -P FORWARD DROP
+
+#Keep Established
+sudo iptables -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+sudo iptables -A OUTPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+sudo iptables -A OUTPUT -m conntrack ! --ctstate INVALID -j ACCEPT
+
+#SSH
+iptables -A INPUT -p tcp -i enp0s3 --dport 5456 -j ACCEPT
+
+#Lo
+iptables -I INPUT -i lo -j ACCEPT
+
+exit 0
+
+chmod +x /etc/network/if-pre-up.d/iptables
+
+6)	Vous devez mettre en place une protection contre les DOS (Denial Of Service
+Attack) sur les ports ouverts de votre VM.)
+
+allternative Pyruse ou Tallow 
+fail2ban : /etc/fail2ban/jail.d/jail.local
+
+apt install fail2ban
+
+recidive : recherche les bannissements effectués par d'autres jails dans le propre
+log de Fail2Ban. Les hôtes qui ont été bannis cinq fois par d'autres jails au cours
+des dix dernières minutes sont bloqués. Le bannissement dure une semaine et
+s'applique à tous les services sur le serveur.
+
+[DEFAULT]
+destmail = tbeguin@student.42.fr
+sender = root@tbeguin-roger-skyline.fr
+
+[sshd]
+port = 5456
+enabled = true
+logpath = /var/log/auth.log
+maxretry = 5
+findtime = 1200
+bantime = 120
+
+[sshd-ddos]
+port = 5456
+enabled = true
+
+[recidive]
+enabled = true
+
+
+7)	Vous devez mettre en place une protection contre les scans sur
+les ports ouverts de votre VM.
+
+sudo apt install net-tools
+	vm : sudo netstat -paunt
+
+Test port: nmap
+
+8)	Arretez les services dont vous n’avez pas besoin pour ce projet.
+
+Aucun service en trop.
+systemctl list-unit-files --type=service --all
+
+9)	Réalisez un script qui met à jour l’ensemble des sources de package, puis de vos
+packages et qui log l’ensemble dans un fichier nommé /var/log/update_script.log.
+Créez une tache planifiée pour ce script une fois par semaine à 4h00 du matin et
+à chaque reboot de la machine.
+
+Ajouter script dans le HOME de root et :
+	sudo chmod +x update_script.sh 
+Ajouter regle crontab:
+	0 4 * * 1	root sudo /root/update_script.sh
+	@reboot		root sudo /root/update_script.sh
+
+10)	Réalisez un script qui permet de surveiller les modifications du fichier
+/etc/crontabet envoie un mail à root si celui-ci a été modifié.
+Créez une tache plannifiée pour script tous les jours à minuit.
+
+Ajouter script dans le HOME de root et :
+	sudo chmod +x crontab_check.sh
+Ajout regele crontab:
+	0 0 * * *	root	sudo /root/crontab_check.sh
+
+Attention dossier mail de root : root != mail
+	Pour modifier aller dans	/etc/aliases
+						est 	/etc/exim4/exim4.conf.template
+
+
+La table Nat : Cette table devrait être utilisée seulement pour effectuer de
+la traduction d'adresse réseau sur différents paquets.
+
+La table Mangle : Comme il a déjà été précisé, le rôle principal de cette table
+devrait être de modifier des paquets. 
